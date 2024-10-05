@@ -10,3 +10,15 @@ const client = createClient({
 });
 
 export const db = drizzle(client);
+
+// Test the connection
+async function testConnection() {
+  try {
+    await client.execute('SELECT 1');
+    console.log('Database connection successful');
+  } catch (error) {
+    console.error('Database connection failed:', error);
+  }
+}
+
+testConnection();

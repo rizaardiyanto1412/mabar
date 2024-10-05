@@ -7,6 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowUpCircle, Trash2, Settings } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import Link from "next/link"
+import { ErrorBoundary } from 'react-error-boundary';
+
+function ErrorFallback({error}) {
+  return (
+    <div role="alert">
+      <p>Something went wrong:</p>
+      <pre>{error.message}</pre>
+    </div>
+  )
+}
 
 const GameForm = ({ onSubmit, fastTrackEnabled }) => {
   const [gameId, setGameId] = useState("")
@@ -14,9 +24,11 @@ const GameForm = ({ onSubmit, fastTrackEnabled }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    console.log("Form submitted with:", gameId, fastTrack);
     if (gameId.trim()) {
       onSubmit(gameId, fastTrack)
       setGameId("")
+      setFastTrack(false)
     }
   }
 
@@ -69,8 +81,8 @@ const CurrentRound = ({ currentRound, onClear }) => (
     <CardContent>
       {currentRound.length > 0 ? (
         <ul className="list-disc list-inside">
-          {currentRound.map((id, index) => (
-            <li key={index}>{id}</li>
+          {currentRound.map((game, index) => (
+            <li key={index}>{game.gameId} {game.isFastTrack ? '(Fast Track)' : ''}</li>
           ))}
         </ul>
       ) : (
@@ -80,119 +92,163 @@ const CurrentRound = ({ currentRound, onClear }) => (
   </Card>
 )
 
-const RoundCard = ({ round, index, onMoveToCurrentRound }) => (
+const RoundCard = ({ round, onMoveToCurrentRound }) => (
   <Card>
     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle>Round {index + 1}</CardTitle>
+      <CardTitle>Round {round.roundNumber}</CardTitle>
       <Button
         size="sm"
         variant="ghost"
-        onClick={() => onMoveToCurrentRound(index)}
-        aria-label={`Move Round ${index + 1} to Current Round`}
+        onClick={() => onMoveToCurrentRound(round.id)}
+        aria-label={`Move Round ${round.roundNumber} to Current Round`}
       >
         <ArrowUpCircle className="h-4 w-4" />
       </Button>
     </CardHeader>
     <CardContent>
       <ul className="list-disc list-inside">
-        {round.map((id, gameIndex) => (
-          <li key={gameIndex}>{id}</li>
+        {round.games.map((game, gameIndex) => (
+          <li key={gameIndex}>{game.gameId} {game.isFastTrack ? '(Fast Track)' : ''}</li>
         ))}
       </ul>
     </CardContent>
   </Card>
 )
 
-export default function Dashboard() {
+export default function DashboardPage() {
+  return (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <Dashboard />
+    </ErrorBoundary>
+  );
+}
+
+const Dashboard = () => {
   const [rounds, setRounds] = useState([])
   const [currentRound, setCurrentRound] = useState([])
   const [fastTrackEnabled, setFastTrackEnabled] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    const storedValue = localStorage.getItem("fastTrackEnabled")
-    setFastTrackEnabled(storedValue === "true")
+    console.log("Dashboard component mounted");
+    fetchRounds();
   }, [])
 
-  const addGameToRounds = useCallback((newGameId, isFastTrack) => {
-    setRounds(prevRounds => {
-      const newRounds = JSON.parse(JSON.stringify(prevRounds));
+  const fetchRounds = async () => {
+    console.log("Fetching rounds...");
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/rounds');
+      console.log("Fetch response:", response);
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Fetched rounds data:", data);
+        
+        // Filter out current games from rounds
+        const nonCurrentRounds = data.rounds.map(round => ({
+          ...round,
+          games: round.games.filter(game => !game.isCurrent)
+        })).filter(round => round.games.length > 0);
 
-      const gameExists = newRounds.some(round => round.includes(newGameId));
-      if (gameExists) {
-        console.log(`Game ${newGameId} already exists. Skipping addition.`);
-        return prevRounds;
-      }
-
-      if (newRounds.length === 0) {
-        return [[newGameId]];
-      }
-
-      if (isFastTrack) {
-        // Find the first round with less than 4 Fast Track games
-        let targetRoundIndex = newRounds.findIndex(round => 
-          round.filter(id => id.includes("(Fast Track)")).length < 4
-        );
-
-        // If all rounds are full of Fast Track games, create a new round
-        if (targetRoundIndex === -1) {
-          newRounds.push([]);
-          targetRoundIndex = newRounds.length - 1;
-        }
-
-        const targetRound = newRounds[targetRoundIndex];
-        const lastFastTrackIndex = targetRound.findLastIndex(id => id.includes("(Fast Track)"));
-
-        if (lastFastTrackIndex === -1) {
-          targetRound.unshift(newGameId);
-        } else {
-          targetRound.splice(lastFastTrackIndex + 1, 0, newGameId);
-        }
-
-        // If the round now has more than 4 games, move the last non-Fast Track game
-        if (targetRound.length > 4) {
-          const lastNonFastTrackIndex = targetRound.findLastIndex(id => !id.includes("(Fast Track)"));
-          if (lastNonFastTrackIndex !== -1) {
-            const movedGame = targetRound.splice(lastNonFastTrackIndex, 1)[0];
-            if (newRounds[targetRoundIndex + 1]) {
-              newRounds[targetRoundIndex + 1].unshift(movedGame);
-            } else {
-              newRounds.push([movedGame]);
-            }
-          }
-        }
+        setRounds(nonCurrentRounds);
+        setCurrentRound(data.currentRound || []);
       } else {
-        // For non-Fast Track games, add to the last round or create a new one
-        const lastRound = newRounds[newRounds.length - 1];
-        if (lastRound.length < 4) {
-          lastRound.push(newGameId);
-        } else {
-          newRounds.push([newGameId]);
-        }
+        throw new Error('Failed to fetch rounds');
       }
-      return newRounds;
-    });
+    } catch (error) {
+      console.error('Failed to fetch rounds:', error);
+      setError('Failed to load rounds. Please try again later.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const addGameToRounds = useCallback(async (newGameId, isFastTrack) => {
+    console.log("Adding game:", newGameId, "Fast Track:", isFastTrack);
+    try {
+      const response = await fetch('/api/rounds', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          gameId: newGameId,
+          isFastTrack: isFastTrack
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save game');
+      }
+      
+      const updatedData = await response.json();
+      console.log("Updated data:", updatedData);
+      setRounds(updatedData.rounds);
+      setCurrentRound(updatedData.currentRound);
+    } catch (error) {
+      console.error('Failed to save game:', error);
+      alert(`Failed to add game: ${error.message}`);
+    }
   }, []);
 
   const handleSubmit = useCallback((gameId, fastTrack) => {
+    console.log("handleSubmit called with:", gameId, fastTrack);
     if (isSubmitting) return;
     setIsSubmitting(true);
-    const newGameId = fastTrack ? `${gameId} (Fast Track)` : gameId;
-    addGameToRounds(newGameId, fastTrack);
-    setTimeout(() => setIsSubmitting(false), 500); // Prevent submissions for 500ms
-  }, [addGameToRounds, isSubmitting])
+    addGameToRounds(gameId, fastTrack);
+    setTimeout(() => setIsSubmitting(false), 500);
+  }, [addGameToRounds, isSubmitting]);
 
-  const moveToCurrentRound = useCallback((index) => {
-    setCurrentRound(rounds[index])
-    setRounds((prevRounds) => prevRounds.filter((_, i) => i !== index))
-  }, [rounds])
+  const moveToCurrentRound = useCallback(async (id) => {
+    try {
+      const response = await fetch(`/api/rounds/move-to-current`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id }),
+      });
 
-  const clearCurrentRound = useCallback(() => {
-    setCurrentRound([])
-  }, [])
+      if (!response.ok) {
+        throw new Error('Failed to move round to current');
+      }
+
+      const updatedData = await response.json();
+      setRounds(updatedData.rounds);
+      setCurrentRound(updatedData.currentRound);
+    } catch (error) {
+      console.error('Failed to move round to current:', error);
+      alert('Failed to move round to current. Please try again.');
+    }
+  }, []);
+
+  const clearCurrentRound = useCallback(async () => {
+    try {
+      const response = await fetch('/api/rounds', {
+        method: 'DELETE',
+      });
+  
+      if (!response.ok) {
+        throw new Error('Failed to clear current round');
+      }
+  
+      const updatedData = await response.json();
+      setCurrentRound(updatedData.currentRound);
+      setRounds(updatedData.rounds);
+    } catch (error) {
+      console.error('Failed to clear current round:', error);
+      alert('Failed to clear current round. Please try again.');
+    }
+  }, []);
 
   return (
     <div className="container mx-auto p-4">
+      {isLoading && <p>Loading...</p>}
+      {error && <p className="text-red-500">{error}</p>}
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Game Dashboard</h1>
         <Link href="/settings">
@@ -202,6 +258,16 @@ export default function Dashboard() {
         </Link>
       </div>
       
+      <div className="mb-4">
+        <label className="flex items-center space-x-2">
+          <Checkbox
+            checked={fastTrackEnabled}
+            onCheckedChange={setFastTrackEnabled}
+          />
+          <span>Enable Fast Track</span>
+        </label>
+      </div>
+
       <GameForm onSubmit={handleSubmit} fastTrackEnabled={fastTrackEnabled} />
 
       <div className="mb-8">
@@ -211,9 +277,8 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {rounds.map((round, index) => (
           <RoundCard
-            key={index}
-            round={round}
-            index={index}
+            key={round.id}
+            round={{...round, roundNumber: index + 1}}
             onMoveToCurrentRound={moveToCurrentRound}
           />
         ))}
