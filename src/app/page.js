@@ -1,4 +1,6 @@
 import Image from "next/image";
+import { db } from "@/db";
+import { usersTable } from "@/db/schema";
 
 export default function Home() {
   return (
