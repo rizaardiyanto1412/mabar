@@ -177,15 +177,16 @@ const Dashboard = () => {
       console.log("Fetched rounds data:", data);
       
       // Ensure rounds is an array and each round has a games array
+      // Filter out archived games
       const processedRounds = Array.isArray(data.rounds) 
         ? data.rounds.map(round => ({
             ...round,
-            games: Array.isArray(round) ? round : []
-          }))
+            games: Array.isArray(round) ? round.filter(game => !game.isArchived) : []
+          })).filter(round => round.games.length > 0)
         : [];
 
       setRounds(processedRounds);
-      setCurrentRound(Array.isArray(data.currentRound) ? data.currentRound : []);
+      setCurrentRound(Array.isArray(data.currentRound) ? data.currentRound.filter(game => !game.isArchived) : []);
     } catch (error) {
       console.error('Failed to fetch rounds:', error);
       setError(error.message || 'Failed to load rounds. Please try again later.');
@@ -278,10 +279,12 @@ const Dashboard = () => {
   const clearCurrentRound = useCallback(async () => {
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      
+    
       if (!token) {
         throw new Error('No authentication token found. Please log in again.');
       }
+
+      console.log('Sending DELETE request to clear current round');
 
       const response = await fetch('/api/rounds', {
         method: 'DELETE',
@@ -291,25 +294,40 @@ const Dashboard = () => {
         },
       });
 
+      console.log('Received response:', response.status, response.statusText);
+
+      const responseData = await response.json();
+      console.log('Response data:', responseData);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to clear current round');
+        throw new Error(responseData.error || `Failed to archive current round: ${response.statusText}`);
       }
 
-      const updatedData = await response.json();
-      console.log('Received data after clearing current round:', updatedData);
+      console.log('Updating state with new data');
+      setRounds(prevRounds => {
+        // Remove the archived games from all rounds
+        const updatedRounds = prevRounds.map(round => {
+          if (Array.isArray(round.games)) {
+            return {
+              ...round,
+              games: round.games.filter(game => !game.isArchived)
+            };
+          }
+          return round; // If round.games is not an array, return the round as is
+        }).filter(round => Array.isArray(round.games) && round.games.length > 0);
+        console.log('Updated rounds:', updatedRounds);
+        return updatedRounds;
+      });
+      setCurrentRound([]);
+      console.log('State updated successfully');
 
-      if (!Array.isArray(updatedData.rounds) || !Array.isArray(updatedData.currentRound)) {
-        throw new Error('Invalid data structure received from server');
-      }
-
-      setCurrentRound(updatedData.currentRound);
-      setRounds(updatedData.rounds);
+      // Optionally, you can show a message to the user that the round has been archived
+      alert('Current round has been archived successfully.');
     } catch (error) {
-      console.error('Failed to clear current round:', error);
-      alert(`Failed to clear current round: ${error.message}`);
+      console.error('Failed to archive current round:', error);
+      alert(`Failed to archive current round: ${error.message}`);
     }
-  }, []);
+  }, [currentRound]);
 
   return (
     <div className="container mx-auto p-4">

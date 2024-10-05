@@ -14,6 +14,8 @@ export const gamesTable = sqliteTable('games', {
   gameId: text('game_id').notNull(),
   isFastTrack: integer('is_fast_track').notNull().default(0),
   isCurrent: integer('is_current').notNull().default(0),
+  isArchived: integer('is_archived').notNull().default(0),
+  archivedAt: text('archived_at'), // Make sure this line is present
   order: integer('order').notNull(),
   userId: integer('user_id').notNull().references(() => usersTable.id),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
