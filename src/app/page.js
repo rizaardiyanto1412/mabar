@@ -1,103 +1,144 @@
+"use client";  // Add this line at the top of the file
+
+import { useState, useEffect } from "react";
 import Image from "next/image";
-import { db } from "@/db";
-import { usersTable } from "@/db/schema";
+import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { ArrowUpCircle } from "lucide-react";
+
+// Component to display the current round
+const CurrentRound = ({ currentRound }) => (
+  <Card className="mb-8">
+    <CardHeader>
+      <CardTitle>Current Round</CardTitle>
+    </CardHeader>
+    <CardContent>
+      {currentRound.length > 0 ? (
+        <ul className="list-disc list-inside">
+          {currentRound.map((game, index) => (
+            <li key={index}>{game.gameId} {game.isFastTrack ? '(Fast Track)' : ''}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>No current round selected</p>
+      )}
+    </CardContent>
+  </Card>
+);
+
+// Component to display a single round
+const RoundCard = ({ round, onMoveToCurrentRound }) => (
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardTitle>Round {round.roundNumber}</CardTitle>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => onMoveToCurrentRound(round.id)}
+        aria-label={`Move Round ${round.roundNumber} to Current Round`}
+      >
+        <ArrowUpCircle className="h-4 w-4" />
+      </Button>
+    </CardHeader>
+    <CardContent>
+      <ul className="list-disc list-inside">
+        {round.games.map((game, gameIndex) => (
+          <li key={gameIndex}>{game.gameId} {game.isFastTrack ? '(Fast Track)' : ''}</li>
+        ))}
+      </ul>
+    </CardContent>
+  </Card>
+);
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.js
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [rounds, setRounds] = useState([]);
+  const [currentRound, setCurrentRound] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+  useEffect(() => {
+    fetchRounds();
+  }, []);
+
+  const fetchRounds = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/rounds');
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Filter out current games from rounds
+        const nonCurrentRounds = data.rounds.map(round => ({
+          ...round,
+          games: round.games.filter(game => !game.isCurrent)
+        })).filter(round => round.games.length > 0);
+
+        setRounds(nonCurrentRounds);
+        setCurrentRound(data.currentRound || []);
+      } else {
+        throw new Error('Failed to fetch rounds');
+      }
+    } catch (error) {
+      console.error('Failed to fetch rounds:', error);
+      setError('Failed to load rounds. Please try again later.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const moveToCurrentRound = async (id) => {
+    try {
+      const response = await fetch(`/api/rounds/move-to-current`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to move round to current');
+      }
+
+      const updatedData = await response.json();
+      setRounds(updatedData.rounds);
+      setCurrentRound(updatedData.currentRound);
+    } catch (error) {
+      console.error('Failed to move round to current:', error);
+      alert('Failed to move round to current. Please try again.');
+    }
+  };
+
+  return (
+    <div className="container mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-4">Game Rounds</h1>
+      
+      {isLoading && <p>Loading...</p>}
+      {error && <p className="text-red-500">{error}</p>}
+      
+      {!isLoading && !error && (
+        <>
+          <CurrentRound currentRound={currentRound} />
+          
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {rounds.map((round, index) => (
+              <RoundCard
+                key={round.id}
+                round={{...round, roundNumber: index + 1}}
+                onMoveToCurrentRound={moveToCurrentRound}
+              />
+            ))}
+          </div>
+          
+          <div className="mt-8">
+            <Link href="/dashboard">
+              <Button>Go to Dashboard</Button>
+            </Link>
+          </div>
+        </>
+      )}
     </div>
   );
 }
