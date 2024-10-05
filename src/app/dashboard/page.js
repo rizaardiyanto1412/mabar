@@ -81,8 +81,8 @@ const CurrentRound = ({ currentRound, onClear }) => (
     <CardContent>
       {currentRound.length > 0 ? (
         <ul className="list-disc list-inside">
-          {currentRound.map((game, index) => (
-            <li key={index}>{game.gameId} {game.isFastTrack ? '(Fast Track)' : ''}</li>
+          {currentRound.map((game) => (
+            <li key={game.id}>{game.gameId} {game.isFastTrack ? '(Fast Track)' : ''}</li>
           ))}
         </ul>
       ) : (
@@ -99,18 +99,22 @@ const RoundCard = ({ round, onMoveToCurrentRound }) => (
       <Button
         size="sm"
         variant="ghost"
-        onClick={() => onMoveToCurrentRound(round.id)}
+        onClick={() => onMoveToCurrentRound(round.roundNumber)}
         aria-label={`Move Round ${round.roundNumber} to Current Round`}
       >
         <ArrowUpCircle className="h-4 w-4" />
       </Button>
     </CardHeader>
     <CardContent>
-      <ul className="list-disc list-inside">
-        {round.games.map((game, gameIndex) => (
-          <li key={gameIndex}>{game.gameId} {game.isFastTrack ? '(Fast Track)' : ''}</li>
-        ))}
-      </ul>
+      {Array.isArray(round.games) && round.games.length > 0 ? (
+        <ul className="list-disc list-inside">
+          {round.games.map((game) => (
+            <li key={game.id}>{game.gameId} {game.isFastTrack ? '(Fast Track)' : ''}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>No games in this round</p>
+      )}
     </CardContent>
   </Card>
 )
@@ -130,6 +134,7 @@ const Dashboard = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [isAuthenticated, setIsAuthenticated] = useState(true)
 
   useEffect(() => {
     console.log("Dashboard component mounted");
@@ -141,11 +146,18 @@ const Dashboard = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem('token');
+      let token;
+      if (typeof window !== 'undefined') {
+        token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      }
       
       if (!token) {
+        console.error('No token found in storage');
+        setIsAuthenticated(false);
         throw new Error('No authentication token found. Please log in again.');
       }
+
+      console.log('Token found:', token.substring(0, 10) + '...'); // Log first 10 characters of token
 
       const response = await fetch('/api/rounds', {
         headers: {
@@ -153,25 +165,33 @@ const Dashboard = () => {
           'Content-Type': 'application/json',
         },
       });
-      console.log("Fetch response:", response);
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Fetched rounds data:", data);
-        
-        // Filter out current games from rounds
-        const nonCurrentRounds = data.rounds.map(round => ({
-          ...round,
-          games: round.games.filter(game => !game.isCurrent)
-        })).filter(round => round.games.length > 0);
-
-        setRounds(nonCurrentRounds);
-        setCurrentRound(data.currentRound || []);
-      } else {
-        throw new Error('Failed to fetch rounds');
+      
+      console.log('Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch rounds');
       }
+      
+      const data = await response.json();
+      console.log("Fetched rounds data:", data);
+      
+      // Ensure rounds is an array and each round has a games array
+      const processedRounds = Array.isArray(data.rounds) 
+        ? data.rounds.map(round => ({
+            ...round,
+            games: Array.isArray(round) ? round : []
+          }))
+        : [];
+
+      setRounds(processedRounds);
+      setCurrentRound(Array.isArray(data.currentRound) ? data.currentRound : []);
     } catch (error) {
       console.error('Failed to fetch rounds:', error);
       setError(error.message || 'Failed to load rounds. Please try again later.');
+      if (error.message.includes('No authentication token found')) {
+        setIsAuthenticated(false);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -180,10 +200,17 @@ const Dashboard = () => {
   const addGameToRounds = useCallback(async (newGameId, isFastTrack) => {
     console.log("Adding game:", newGameId, "Fast Track:", isFastTrack);
     try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      
+      if (!token) {
+        throw new Error('No authentication token found. Please log in again.');
+      }
+
       const response = await fetch('/api/rounds', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           gameId: newGameId,
@@ -214,21 +241,32 @@ const Dashboard = () => {
     setTimeout(() => setIsSubmitting(false), 500);
   }, [addGameToRounds, isSubmitting]);
 
-  const moveToCurrentRound = useCallback(async (id) => {
+  const moveToCurrentRound = useCallback(async (roundIndex) => {
     try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      
+      if (!token) {
+        throw new Error('No authentication token found. Please log in again.');
+      }
+
+      console.log('Moving round to current:', roundIndex); // Add this log
+
       const response = await fetch(`/api/rounds/move-to-current`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id: roundIndex }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to move round to current');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to move round to current');
       }
 
       const updatedData = await response.json();
+      console.log('Updated data after moving round:', updatedData); // Add this log
       setRounds(updatedData.rounds);
       setCurrentRound(updatedData.currentRound);
     } catch (error) {
@@ -239,20 +277,37 @@ const Dashboard = () => {
 
   const clearCurrentRound = useCallback(async () => {
     try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      
+      if (!token) {
+        throw new Error('No authentication token found. Please log in again.');
+      }
+
       const response = await fetch('/api/rounds', {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       });
-  
+
       if (!response.ok) {
-        throw new Error('Failed to clear current round');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to clear current round');
       }
-  
+
       const updatedData = await response.json();
+      console.log('Received data after clearing current round:', updatedData);
+
+      if (!Array.isArray(updatedData.rounds) || !Array.isArray(updatedData.currentRound)) {
+        throw new Error('Invalid data structure received from server');
+      }
+
       setCurrentRound(updatedData.currentRound);
       setRounds(updatedData.rounds);
     } catch (error) {
       console.error('Failed to clear current round:', error);
-      alert('Failed to clear current round. Please try again.');
+      alert(`Failed to clear current round: ${error.message}`);
     }
   }, []);
 
@@ -286,10 +341,10 @@ const Dashboard = () => {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {rounds.map((round, index) => (
+        {Array.isArray(rounds) && rounds.map((round, index) => (
           <RoundCard
-            key={round.id}
-            round={{...round, roundNumber: index + 1}}
+            key={round.id || index}
+            round={{...round, roundNumber: index + 1, games: round.games || []}}
             onMoveToCurrentRound={moveToCurrentRound}
           />
         ))}

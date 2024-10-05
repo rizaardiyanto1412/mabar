@@ -1,59 +1,66 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { gamesTable } from '@/db/schema';
-import { sql, and, gte, lt } from 'drizzle-orm';
-
-const GAMES_PER_ROUND = 4;
+import { eq, and, gte, lt } from 'drizzle-orm';
+import { verifyAuth } from '@/lib/auth';
 
 export async function POST(request) {
-  const { id } = await request.json();
-
   try {
-    // Calculate the start and end order for the selected round
-    const startOrder = (id - 1) * GAMES_PER_ROUND + 1;
-    const endOrder = id * GAMES_PER_ROUND;
-
-    // Set all games to not current
-    await db.update(gamesTable).set({ isCurrent: 0 });
-
-    // Move selected games to current round
-    await db.update(gamesTable)
-      .set({ isCurrent: 1 })
-      .where(and(
-        gte(gamesTable.order, startOrder),
-        lt(gamesTable.order, endOrder + 1)
-      ));
-
-    // Shift the order of remaining games
-    await db.run(sql`
-      UPDATE games
-      SET "order" = "order" - ${GAMES_PER_ROUND}
-      WHERE "order" > ${endOrder}
-    `);
-
-    // Fetch updated games
-    const allGames = await db.select().from(gamesTable).orderBy(gamesTable.order);
-
-    // Group non-current games into rounds of 4
-    const rounds = [];
-    let roundCounter = 1;
-    const nonCurrentGames = allGames.filter(game => game.isCurrent === 0);
-    for (let i = 0; i < nonCurrentGames.length; i += GAMES_PER_ROUND) {
-      const roundGames = nonCurrentGames.slice(i, i + GAMES_PER_ROUND);
-      if (roundGames.length > 0) {
-        rounds.push({
-          id: roundCounter,
-          roundNumber: roundCounter,
-          games: roundGames
-        });
-        roundCounter++;
-      }
+    const token = request.headers.get('Authorization')?.split(' ')[1];
+    if (!token) {
+      return NextResponse.json({ error: 'No token provided' }, { status: 401 });
     }
 
-    // Get current round (games where isCurrent is 1)
-    const currentRound = allGames.filter(game => game.isCurrent === 1);
+    const decoded = await verifyAuth(token);
+    if (!decoded || !decoded.userId) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
 
-    return NextResponse.json({ rounds, currentRound });
+    const userId = decoded.userId;
+    const { id } = await request.json();
+
+    console.log('Received round ID:', id); // Add this log
+
+    if (typeof id !== 'number' || !Number.isFinite(id) || id < 1) {
+      return NextResponse.json({ error: 'Invalid round ID' }, { status: 400 });
+    }
+
+    // Calculate the order range for the specified round
+    const startOrder = (id - 1) * 4;
+    const endOrder = id * 4;
+
+    // Update the specified round to be current
+    await db.update(gamesTable)
+      .set({ isCurrent: 1 })
+      .where(
+        and(
+          eq(gamesTable.userId, userId),
+          gte(gamesTable.order, startOrder),
+          lt(gamesTable.order, endOrder)
+        )
+      );
+
+    // Fetch updated games
+    const updatedGames = await db.select().from(gamesTable).where(eq(gamesTable.userId, userId));
+
+    // Group games into rounds
+    const rounds = updatedGames.reduce((acc, game) => {
+      const roundIndex = Math.floor(game.order / 4);
+      if (!acc[roundIndex]) acc[roundIndex] = [];
+      acc[roundIndex].push(game);
+      return acc;
+    }, []);
+
+    // Get current games
+    const currentGames = updatedGames.filter(game => game.isCurrent);
+
+    console.log('Updated rounds:', rounds); // Add this log
+    console.log('Current games:', currentGames); // Add this log
+
+    return NextResponse.json({
+      rounds: rounds,
+      currentRound: currentGames,
+    });
   } catch (error) {
     console.error('Failed to move round to current:', error);
     return NextResponse.json({ error: 'Failed to move round to current: ' + error.message }, { status: 500 });

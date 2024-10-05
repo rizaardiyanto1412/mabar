@@ -39,12 +39,12 @@ export async function GET(request) {
     const currentGames = userGames.filter(game => game.isCurrent);
 
     return NextResponse.json({
-      rounds: rounds,
-      currentRound: currentGames,
+      rounds: rounds || [],
+      currentRound: currentGames || [],
     });
   } catch (error) {
     console.error('Error in GET /api/rounds:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error', rounds: [], currentRound: [] }, { status: 500 });
   }
 }
 
@@ -125,7 +125,7 @@ export async function DELETE(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const userId = decoded.id;
+    const userId = decoded.userId;
 
     // Update all current games to non-current
     await db.update(gamesTable)
@@ -146,11 +146,11 @@ export async function DELETE(request) {
       }, []);
 
     return NextResponse.json({
-      rounds: rounds,
+      rounds: rounds || [],
       currentRound: [],
     });
   } catch (error) {
     console.error('Failed to clear current round:', error);
-    return NextResponse.json({ error: 'Failed to clear current round: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to clear current round: ' + error.message, rounds: [], currentRound: [] }, { status: 500 });
   }
 }
