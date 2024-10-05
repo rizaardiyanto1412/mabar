@@ -141,7 +141,18 @@ const Dashboard = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/rounds');
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        throw new Error('No authentication token found. Please log in again.');
+      }
+
+      const response = await fetch('/api/rounds', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
       console.log("Fetch response:", response);
       if (response.ok) {
         const data = await response.json();
@@ -160,7 +171,7 @@ const Dashboard = () => {
       }
     } catch (error) {
       console.error('Failed to fetch rounds:', error);
-      setError('Failed to load rounds. Please try again later.');
+      setError(error.message || 'Failed to load rounds. Please try again later.');
     } finally {
       setIsLoading(false);
     }
